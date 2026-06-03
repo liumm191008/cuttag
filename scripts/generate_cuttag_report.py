@@ -1926,15 +1926,16 @@ def render_motif_enrichment_section(results_dir: Path, report_dir: Path, small_l
     return render_cuttag_tables("Motif 和富集结果表", sorted(set(tables))[:40], report_dir, small_limit, preview_limit) + render_file_links("Motif HTML/富集交互结果", sorted(set(htmls)), report_dir, "HOMER motif HTML 或富集分析生成的交互页面，可离线打开查看。")
 
 
-def differential_contrast_result_name(path: Path, diff_dir: Path) -> str | None:
-    """Return a comparison name only for the primary DiffBind result table.
+def differential_comparison_name(path: Path) -> str | None:
+    """Return the base DiffBind contrast name for any contrast child output.
 
-    The report should create one tab per real group-vs-group contrast. In this
-    workflow those tabs are defined by the direct files
-    ``differential_peaks/contrast_<group_a>_vs_<group_b>.tsv``. Derived files
-    such as ``.gain.tsv``, ``.loss.tsv``, annotation summaries, enrichment
-    plots, peak files and gene-ID mapping tables are child outputs and must not
-    create their own tabs.
+    DiffBind contrast prefixes are generated as
+    ``contrast_<group_a>_vs_<group_b>``. Group names are sanitized by the WDL
+    but may still contain dots, dashes and underscores, so the parser must not
+    split on the first dot or on enrichment markers that may also appear in a
+    group name. This helper strips only known workflow suffixes from the end of
+    the filename and collapses gain/loss child outputs back to their parent
+    contrast, e.g. ``contrast_A_vs_B.gain_GO.csv`` -> ``contrast_A_vs_B``.
     """
     if path.parent != diff_dir or path.suffix.lower() != ".tsv":
         return None
@@ -1963,11 +1964,106 @@ def differential_contrast_result_name(path: Path, diff_dir: Path) -> str | None:
         return None
     return comparison
 
+    # Plot failures are written as <expected output>.error.txt. Strip the error
+    # wrapper first so the regular workflow suffixes below can still match.
+    if name.endswith(".error.txt"):
+        name = name[: -len(".error.txt")]
 
-def differential_output_belongs_to_comparison(path: Path, comparison: str) -> bool:
-    """Return whether an output file/directory belongs under a known contrast."""
-    name = path.name
-    return name == comparison or name.startswith(f"{comparison}.") or name.startswith(f"{comparison}_")
+    known_suffixes = [
+        # Enrichment outputs for full/gain/loss peak sets.
+        ".gain_GO_classification.csv",
+        ".loss_GO_classification.csv",
+        "_GO_classification.csv",
+        ".gain_Reactome_barplot.pdf",
+        ".gain_Reactome_dotplot.pdf",
+        ".loss_Reactome_barplot.pdf",
+        ".loss_Reactome_dotplot.pdf",
+        "_Reactome_barplot.pdf",
+        "_Reactome_dotplot.pdf",
+        ".gain_Reactome.csv",
+        ".loss_Reactome.csv",
+        "_Reactome.csv",
+        ".gain_KEGG_barplot.pdf",
+        ".gain_KEGG_dotplot.pdf",
+        ".loss_KEGG_barplot.pdf",
+        ".loss_KEGG_dotplot.pdf",
+        "_KEGG_barplot.pdf",
+        "_KEGG_dotplot.pdf",
+        ".gain_KEGG.csv",
+        ".loss_KEGG.csv",
+        "_KEGG.csv",
+        ".gain_GO_barplot.pdf",
+        ".gain_GO_dotplot.pdf",
+        ".gain_GO_DAG.pdf",
+        ".loss_GO_barplot.pdf",
+        ".loss_GO_dotplot.pdf",
+        ".loss_GO_DAG.pdf",
+        "_GO_barplot.pdf",
+        "_GO_dotplot.pdf",
+        "_GO_DAG.pdf",
+        ".gain_GO.csv",
+        ".loss_GO.csv",
+        "_GO.csv",
+        ".gain.enrichment.skipped.tsv",
+        ".loss.enrichment.skipped.tsv",
+        ".enrichment.skipped.tsv",
+        # Annotation outputs for full/gain/loss peak sets.
+        ".gain.annotation_summary.tsv",
+        ".loss.annotation_summary.tsv",
+        ".annotation_summary.tsv",
+        ".gain.annotation_pie_data.tsv",
+        ".loss.annotation_pie_data.tsv",
+        ".annotation_pie_data.tsv",
+        ".gain.tss_distance_data.tsv",
+        ".loss.tss_distance_data.tsv",
+        ".tss_distance_data.tsv",
+        ".gain.tss_distance_summary.tsv",
+        ".loss.tss_distance_summary.tsv",
+        ".tss_distance_summary.tsv",
+        ".gain.peak_annotation_stats.tsv",
+        ".loss.peak_annotation_stats.tsv",
+        ".peak_annotation_stats.tsv",
+        ".gain.peak_genes.txt",
+        ".loss.peak_genes.txt",
+        ".peak_genes.txt",
+        ".gain.enrichment_genes.tsv",
+        ".loss.enrichment_genes.tsv",
+        ".enrichment_genes.tsv",
+        ".gain.annotation.skipped.tsv",
+        ".loss.annotation.skipped.tsv",
+        ".annotation.skipped.tsv",
+        ".gain.annotation_pie.pdf",
+        ".loss.annotation_pie.pdf",
+        ".annotation_pie.pdf",
+        ".gain.tss_distance.pdf",
+        ".loss.tss_distance.pdf",
+        ".tss_distance.pdf",
+        ".gain.annotated.tsv",
+        ".loss.annotated.tsv",
+        ".annotated.tsv",
+        ".gain.bed",
+        ".loss.bed",
+        ".bed",
+        # Direct DiffBind outputs in differential_peaks/.
+        ".MA_plot.pdf",
+        ".volcano_plot.pdf",
+        ".boxplot.pdf",
+        ".gain.tsv",
+        ".loss.tsv",
+        ".tsv",
+    ]
+    for suffix in known_suffixes:
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+
+    # Directory-like prefixes are accepted only if they still look like a
+    # contrast. This supports HOMER output directories named <contrast>.gain or
+    # <contrast>.loss without creating separate gain/loss comparison tabs.
+    for suffix in (".gain", ".loss"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+
+    return name if "_vs_" in name else None
 
 
 def diff_annotation_files(diff_dir: Path, comparison: str) -> list[Path]:
@@ -1976,7 +2072,7 @@ def diff_annotation_files(diff_dir: Path, comparison: str) -> list[Path]:
         return []
     return sorted(
         path for path in collect_files(annotation_dir, TABLE_EXTENSIONS)
-        if differential_output_belongs_to_comparison(path, comparison) and not path.name.endswith(".enrichment_genes.tsv")
+        if differential_comparison_name(path) == comparison and not path.name.endswith(".enrichment_genes.tsv")
     )
 
 
@@ -1987,9 +2083,9 @@ def diff_enrichment_block(diff_dir: Path, comparison: str, report_dir: Path, sma
     blocks = []
     for title, category in [("GO 富集结果", "GO"), ("KEGG 富集结果", "KEGG"), ("Reactome 富集结果", "Reactome")]:
         tables, plots, htmls = enrichment_category_files(enrichment_dir, category)
-        tables = [path for path in tables if differential_output_belongs_to_comparison(path, comparison)]
-        plots = [path for path in plots if differential_output_belongs_to_comparison(path, comparison)]
-        htmls = [path for path in htmls if differential_output_belongs_to_comparison(path, comparison)]
+        tables = [path for path in tables if differential_comparison_name(path) == comparison]
+        plots = [path for path in plots if differential_comparison_name(path) == comparison]
+        htmls = [path for path in htmls if differential_comparison_name(path) == comparison]
         if tables or plots or htmls:
             table_block = "".join(render_table(f"{title}（{comparison}）", path, report_dir, small_limit, preview_limit, table_description(path)) for path in tables)
             html_block = render_file_links(f"{title}HTML（{comparison}）", htmls, report_dir, f"{title}交互或通路页面。") if htmls and category.lower() != "kegg" else ""
@@ -2004,7 +2100,7 @@ def diff_motif_block(diff_dir: Path, comparison: str, report_dir: Path) -> str:
     htmls = [
         path
         for path in collect_files(motif_dir, {".html"})
-        if differential_output_belongs_to_comparison(path, comparison) or differential_output_belongs_to_comparison(path.parent, comparison)
+        if differential_comparison_name(path) == comparison or differential_comparison_name(path.parent) == comparison
     ]
     return render_file_links(f"{comparison} 差异Peak Motif HTML", sorted(htmls), report_dir, "当前比较 gain/loss peak 相关 motif 结果页面。")
 
