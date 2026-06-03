@@ -1926,44 +1926,48 @@ def render_motif_enrichment_section(results_dir: Path, report_dir: Path, small_l
     return render_cuttag_tables("Motif 和富集结果表", sorted(set(tables))[:40], report_dir, small_limit, preview_limit) + render_file_links("Motif HTML/富集交互结果", sorted(set(htmls)), report_dir, "HOMER motif HTML 或富集分析生成的交互页面，可离线打开查看。")
 
 
-def differential_comparison_name(path: Path) -> str | None:
-    """Return the base DiffBind contrast name for a contrast result file.
+def differential_contrast_result_name(path: Path, diff_dir: Path) -> str | None:
+    """Return a comparison name only for the primary DiffBind result table.
 
-    Only the base comparison (for example ``contrast_con_vs_LPS``) is a
-    contrast. Files such as ``contrast_con_vs_LPS.annotation_summary.tsv`` or
-    ``contrast_con_vs_LPS_GO.csv`` are child outputs of that same contrast and
-    must not create separate comparison tabs.
+    The report should create one tab per real group-vs-group contrast. In this
+    workflow those tabs are defined by the direct files
+    ``differential_peaks/contrast_<group_a>_vs_<group_b>.tsv``. Derived files
+    such as ``.gain.tsv``, ``.loss.tsv``, annotation summaries, enrichment
+    plots, peak files and gene-ID mapping tables are child outputs and must not
+    create their own tabs.
     """
+    if path.parent != diff_dir or path.suffix.lower() != ".tsv":
+        return None
     name = path.name
     if not name.startswith("contrast_"):
         return None
+    comparison = name[: -len(".tsv")]
+    if "_vs_" not in comparison:
+        return None
+    child_suffixes = (
+        ".gain",
+        ".loss",
+        ".annotated",
+        ".annotation_summary",
+        ".annotation_pie_data",
+        ".tss_distance_data",
+        ".tss_distance_summary",
+        ".peak_annotation_stats",
+        ".enrichment_genes",
+        ".enrichment",
+        ".annotation",
+        ".gain_loss_summary",
+        ".peaks",
+    )
+    if comparison.endswith(child_suffixes):
+        return None
+    return comparison
 
-    # Enrichment outputs use underscore suffixes, e.g.
-    # contrast_con_vs_LPS_GO.csv / _GO_barplot.pdf / _Reactome_dotplot.pdf.
-    underscore_markers = [
-        "_GO_classification",
-        "_GO_barplot",
-        "_GO_dotplot",
-        "_GO_DAG",
-        "_GO",
-        "_KEGG_barplot",
-        "_KEGG_dotplot",
-        "_KEGG",
-        "_Reactome_barplot",
-        "_Reactome_dotplot",
-        "_Reactome",
-    ]
-    for marker in underscore_markers:
-        marker_index = name.find(marker)
-        if marker_index > 0:
-            return name[:marker_index]
 
-    # All dot-suffixed files are outputs under the contrast, including the main
-    # .tsv table and child files such as .annotation_summary.tsv, .gain.tsv,
-    # .MA_plot.pdf, .volcano_plot.pdf, etc.
-    if "." in name:
-        return name.split(".", 1)[0]
-    return name
+def differential_output_belongs_to_comparison(path: Path, comparison: str) -> bool:
+    """Return whether an output file/directory belongs under a known contrast."""
+    name = path.name
+    return name == comparison or name.startswith(f"{comparison}.") or name.startswith(f"{comparison}_")
 
 
 def diff_annotation_files(diff_dir: Path, comparison: str) -> list[Path]:
@@ -1972,7 +1976,7 @@ def diff_annotation_files(diff_dir: Path, comparison: str) -> list[Path]:
         return []
     return sorted(
         path for path in collect_files(annotation_dir, TABLE_EXTENSIONS)
-        if path.name.startswith(comparison) and not path.name.endswith(".enrichment_genes.tsv")
+        if differential_output_belongs_to_comparison(path, comparison) and not path.name.endswith(".enrichment_genes.tsv")
     )
 
 
@@ -1983,9 +1987,9 @@ def diff_enrichment_block(diff_dir: Path, comparison: str, report_dir: Path, sma
     blocks = []
     for title, category in [("GO 富集结果", "GO"), ("KEGG 富集结果", "KEGG"), ("Reactome 富集结果", "Reactome")]:
         tables, plots, htmls = enrichment_category_files(enrichment_dir, category)
-        tables = [path for path in tables if path.name.startswith(comparison)]
-        plots = [path for path in plots if path.name.startswith(comparison)]
-        htmls = [path for path in htmls if path.name.startswith(comparison)]
+        tables = [path for path in tables if differential_output_belongs_to_comparison(path, comparison)]
+        plots = [path for path in plots if differential_output_belongs_to_comparison(path, comparison)]
+        htmls = [path for path in htmls if differential_output_belongs_to_comparison(path, comparison)]
         if tables or plots or htmls:
             table_block = "".join(render_table(f"{title}（{comparison}）", path, report_dir, small_limit, preview_limit, table_description(path)) for path in tables)
             html_block = render_file_links(f"{title}HTML（{comparison}）", htmls, report_dir, f"{title}交互或通路页面。") if htmls and category.lower() != "kegg" else ""
@@ -1997,7 +2001,11 @@ def diff_motif_block(diff_dir: Path, comparison: str, report_dir: Path) -> str:
     motif_dir = diff_dir / "motif"
     if not motif_dir.exists():
         return render_missing(f"{comparison} 差异Peak Motif结果", "未发现差异 Peak motif 结果。")
-    htmls = [path for path in collect_files(motif_dir, {".html"}) if path.name.startswith(comparison) or path.parent.name.startswith(comparison)]
+    htmls = [
+        path
+        for path in collect_files(motif_dir, {".html"})
+        if differential_output_belongs_to_comparison(path, comparison) or differential_output_belongs_to_comparison(path.parent, comparison)
+    ]
     return render_file_links(f"{comparison} 差异Peak Motif HTML", sorted(htmls), report_dir, "当前比较 gain/loss peak 相关 motif 结果页面。")
 
 
@@ -2020,17 +2028,14 @@ def render_differential_section(results_dir: Path, report_dir: Path, small_limit
     )
 
     comparison_names: set[str] = set()
-    for path in list(collect_files(diff_dir, TABLE_EXTENSIONS)) + collect_files(diff_dir, IMAGE_EXTENSIONS):
-        comparison = differential_comparison_name(path)
+    for path in collect_files(diff_dir, TABLE_EXTENSIONS):
+        comparison = differential_contrast_result_name(path, diff_dir)
         if comparison:
             comparison_names.add(comparison)
 
     panels = []
     for comparison in sorted(comparison_names):
-        calling_tables = [
-            path for path in collect_files(diff_dir, TABLE_EXTENSIONS)
-            if differential_comparison_name(path) == comparison and path.name == f"{comparison}.tsv"
-        ]
+        calling_tables = [diff_dir / f"{comparison}.tsv"]
         calling_plots = [
             path for path in collect_files(diff_dir, IMAGE_EXTENSIONS)
             if path.name in {f"{comparison}.MA_plot.pdf", f"{comparison}.volcano_plot.pdf"}
