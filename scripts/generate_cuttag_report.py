@@ -1937,9 +1937,32 @@ def differential_comparison_name(path: Path) -> str | None:
     the filename and collapses gain/loss child outputs back to their parent
     contrast, e.g. ``contrast_A_vs_B.gain_GO.csv`` -> ``contrast_A_vs_B``.
     """
+    if path.parent != diff_dir or path.suffix.lower() != ".tsv":
+        return None
     name = path.name
     if not name.startswith("contrast_"):
         return None
+    comparison = name[: -len(".tsv")]
+    if "_vs_" not in comparison:
+        return None
+    child_suffixes = (
+        ".gain",
+        ".loss",
+        ".annotated",
+        ".annotation_summary",
+        ".annotation_pie_data",
+        ".tss_distance_data",
+        ".tss_distance_summary",
+        ".peak_annotation_stats",
+        ".enrichment_genes",
+        ".enrichment",
+        ".annotation",
+        ".gain_loss_summary",
+        ".peaks",
+    )
+    if comparison.endswith(child_suffixes):
+        return None
+    return comparison
 
     # Plot failures are written as <expected output>.error.txt. Strip the error
     # wrapper first so the regular workflow suffixes below can still match.
@@ -2101,17 +2124,14 @@ def render_differential_section(results_dir: Path, report_dir: Path, small_limit
     )
 
     comparison_names: set[str] = set()
-    for path in list(collect_files(diff_dir, TABLE_EXTENSIONS)) + collect_files(diff_dir, IMAGE_EXTENSIONS):
-        comparison = differential_comparison_name(path)
+    for path in collect_files(diff_dir, TABLE_EXTENSIONS):
+        comparison = differential_contrast_result_name(path, diff_dir)
         if comparison:
             comparison_names.add(comparison)
 
     panels = []
     for comparison in sorted(comparison_names):
-        calling_tables = [
-            path for path in collect_files(diff_dir, TABLE_EXTENSIONS)
-            if differential_comparison_name(path) == comparison and path.name == f"{comparison}.tsv"
-        ]
+        calling_tables = [diff_dir / f"{comparison}.tsv"]
         calling_plots = [
             path for path in collect_files(diff_dir, IMAGE_EXTENSIONS)
             if path.name in {f"{comparison}.MA_plot.pdf", f"{comparison}.volcano_plot.pdf"}
