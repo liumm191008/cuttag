@@ -162,7 +162,7 @@ Important workflow outputs include:
 | `filter_stats` / `picard_alignment_metrics` / `raw_picard_alignment_metrics` | samtools filtering QC plus Picard metrics for both filtered BAMs and raw coordinate-sorted alignment BAMs. |
 | `insert_size_metrics` / `insert_size_plots` | Picard insert-size statistics and histogram PDFs. |
 | `fragments` | Fragment BED files inferred from paired-end alignments. |
-| `bigwigs` | Normalized bigWig signal tracks. |
+| `bigwigs` / `genome_coverage_plots` | Normalized bigWig signal tracks and per-sample PNG genome coverage plots generated from bigWig by `/bins/plot.genomecov.bw.py`. |
 | `peak_files` / `peak_summaries` | MACS3 peak BED files and per-sample peak summaries. |
 | `annotated_peaks` / `peak_annotation_summaries` / `peak_annotation_stats` | ChIPseeker peak annotation tables, annotation summaries, and per-sample annotation statistics from `peak_annotation.R`. |
 | `annotation_pie_data` / `tss_distance_data` / `tss_distance_summaries` | Statistics tables used to produce `annotation_pie.pdf` and `tss_distance.pdf`, including per-annotation counts and per-peak/bin TSS-distance data. |
