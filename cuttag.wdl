@@ -169,6 +169,7 @@ workflow CutTag {
         bigwig_normalization = bigwig_normalization,
         effective_genome_size = effective_genome_size,
         bigwig_bin_size = bigwig_bin_size,
+        species = species,
         docker_run = docker_run,
         samtools_image = samtools_image,
         deeptools_image = deeptools_image
@@ -324,6 +325,7 @@ workflow CutTag {
     Array[String] insert_size_plots = CollectInsertSizeMetrics.insert_size_histogram_path
     Array[String] fragments = MakeTracks.fragments_bed_path
     Array[String] bigwigs = MakeTracks.bigwig_path
+    Array[String] genome_coverage_plots = MakeTracks.genome_coverage_plot_path
     Array[String] peak_files = CallPeaks.peaks_path
     Array[String] peak_summaries = CallPeaks.peak_summary_path
     Array[String] annotated_peaks = AnnotatePeaks.annotated_peaks_path
@@ -692,6 +694,7 @@ task MakeTracks {
     String bigwig_normalization
     Int effective_genome_size
     Int bigwig_bin_size
+    String species
     String docker_run
     String samtools_image
     String deeptools_image
@@ -738,11 +741,23 @@ task MakeTracks {
           --numberOfProcessors ~{threads}
       '
     fi
+
+    ~{docker_run} ~{deeptools_image} bash -c '
+      set -euo pipefail
+      test -s "/bins/plot.genomecov.bw.py"
+      python "/bins/plot.genomecov.bw.py" \
+        -i "~{output_dir}/tracks/~{sample_id}/~{sample_id}.bw" \
+        -o "~{output_dir}/tracks/~{sample_id}/~{sample_id}.genome_coverage.png" \
+        -s "~{species}" \
+        --title "~{sample_id} genome coverage"
+      test -s "~{output_dir}/tracks/~{sample_id}/~{sample_id}.genome_coverage.png"
+    '
   >>>
 
   output {
     String fragments_bed_path = output_dir + "/tracks/" + sample_id + "/" + sample_id + ".fragments.bed"
     String bigwig_path = output_dir + "/tracks/" + sample_id + "/" + sample_id + ".bw"
+    String genome_coverage_plot_path = output_dir + "/tracks/" + sample_id + "/" + sample_id + ".genome_coverage.png"
   }
 }
 
